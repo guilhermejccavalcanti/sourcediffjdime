@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<qualifiedTypeNameHistroy>
+<fullyQualifiedTypeName name="de.fosd.jdime.config.merge.MergeContext"/>
+<fullyQualifiedTypeName name="org.jastadd.extendj.ast.Stmt"/>
+<fullyQualifiedTypeName name="java.util.function.Supplier"/>
+<fullyQualifiedTypeName name="de.fosd.jdime.config.merge.Revision"/>
+<fullyQualifiedTypeName name="de.fosd.jdime.strategy.StructuredStrategy"/>
+<fullyQualifiedTypeName name="br.ufpe.cin.mergers.util.MergeConflict"/>
+<fullyQualifiedTypeName name="java.io.File"/>
+<fullyQualifiedTypeName name="de.fosd.jdime.artifact.ast.ASTNodeArtifact"/>
+<fullyQualifiedTypeName name="org.jastadd.extendj.ast.EnhancedForStmt"/>
+<fullyQualifiedTypeName name="fpfn.ASTBranchComparator"/>
+<fullyQualifiedTypeName name="br.ufpe.cin.generated.SimplePrintVisitor"/>
+<fullyQualifiedTypeName name="com.google.common.util.concurrent.TimeLimiter"/>
+<fullyQualifiedTypeName name="java.util.concurrent.TimeUnit"/>
+<fullyQualifiedTypeName name="de.fosd.jdime.strategy.StructuredStrategy.ASTBranchesResult"/>
+<fullyQualifiedTypeName name="java.util.List"/>
+</qualifiedTypeNameHistroy>

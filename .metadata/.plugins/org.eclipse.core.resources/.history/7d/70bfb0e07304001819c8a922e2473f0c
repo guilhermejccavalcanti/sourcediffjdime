@@ -1,0 +1,394 @@
+package br.ufpe.cin.mergers;
+
+import br.ufpe.cin.exceptions.ExceptionUtils;
+import br.ufpe.cin.exceptions.SemistructuredMergeException;
+import br.ufpe.cin.exceptions.TextualMergeException;
+import br.ufpe.cin.files.FilesManager;
+import br.ufpe.cin.mergers.handlers.ConflictsHandler;
+import br.ufpe.cin.mergers.util.MergeConflict;
+import br.ufpe.cin.mergers.util.MergeContext;
+import br.ufpe.cin.parser.JParser;
+import br.ufpe.cin.printers.Prettyprinter;
+import cide.gparser.ParseException;
+import cide.gparser.TokenMgrError;
+import de.ovgu.cide.fstgen.ast.FSTNode;
+import de.ovgu.cide.fstgen.ast.FSTNonTerminal;
+import de.ovgu.cide.fstgen.ast.FSTTerminal;
+import fpfn.Difference;
+import fpfn.Difference.Type;
+import fpfn.FPFNUtils;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.PrintStream;
+import java.io.UnsupportedEncodingException;
+import java.util.List;
+import org.apache.commons.lang3.tuple.Pair;
+
+public final class SemistructuredMerge {
+	static final String MERGE_SEPARATOR = "##FSTMerge##";
+	static final String SEMANTIC_MERGE_MARKER = "~~FSTMerge~~";
+
+	public static String merge(File left, File base, File right,
+			MergeContext context) throws SemistructuredMergeException,
+			TextualMergeException {
+		try {
+			JParser parser = new JParser();
+			FSTNode leftTree = parser.parse(left);
+			FSTNode baseTree = parser.parse(base);
+			FSTNode rightTree = parser.parse(right);
+
+			context.join(merge(leftTree, baseTree, rightTree));
+
+			ConflictsHandler.handle(context);
+		} catch (ParseException | FileNotFoundException
+				| UnsupportedEncodingException | TokenMgrError ex) {
+			String message = ExceptionUtils.getCauseMessage(ex);
+			if ((ex instanceof FileNotFoundException)) {
+				message = "The merged file was deleted in one version.";
+			}
+			throw new SemistructuredMergeException(message, context);
+		}
+		return FilesManager.indentCode(Prettyprinter
+				.print(context.superImposedTree));
+	}
+
+	private static MergeContext merge(FSTNode left, FSTNode base, FSTNode right)
+			throws TextualMergeException {
+		left.index = 0;
+		base.index = 1;
+		right.index = 2;
+
+		MergeContext context = new MergeContext();
+		context.leftTree = left;
+		context.baseTree = base;
+		context.rightTree = right;
+
+		FSTNode mergeLeftBase = superimpose(left, base, null, context, true);
+		FSTNode mergeLeftBaseRight = superimpose(mergeLeftBase, right, null,
+				context, false);
+
+		removeRemainingBaseNodes(mergeLeftBaseRight, context);
+		mergeMatchedContent(mergeLeftBaseRight, context);
+
+		context.superImposedTree = mergeLeftBaseRight;
+
+		return context;
+	}
+
+	private static FSTNode superimpose(FSTNode nodeA, FSTNode nodeB,
+			FSTNonTerminal parent, MergeContext context,
+			boolean isProcessingBaseTree) {
+		if (nodeA.compatibleWith(nodeB)) {
+			FSTNode composed = nodeA.getShallowClone();
+			composed.index = nodeB.index;
+			composed.setParent(parent);
+			if (((nodeA instanceof FSTNonTerminal))
+					&& ((nodeB instanceof FSTNonTerminal))) {
+				FSTNonTerminal nonterminalA = (FSTNonTerminal) nodeA;
+				FSTNonTerminal nonterminalB = (FSTNonTerminal) nodeB;
+				FSTNonTerminal nonterminalComposed = (FSTNonTerminal) composed;
+				for (FSTNode childB : nonterminalB.getChildren()) {
+					FSTNode childA = nonterminalA.getCompatibleChild(childB);
+					if (childA == null) {
+						FSTNode cloneB = childB.getDeepClone();
+						if (childB.index == -1) {
+							childB.index = nodeB.index;
+						}
+						cloneB.index = childB.index;
+
+						nonterminalComposed.addChild(cloneB);
+						if (isProcessingBaseTree) {
+							context.deletedBaseNodes.add(cloneB);
+							context.nodesDeletedByLeft.add(cloneB);
+						} else {
+							context.addedRightNodes.add(cloneB);
+						}
+					} else {
+						if (childA.index == -1) {
+							childA.index = nodeA.index;
+						}
+						if (childB.index == -1) {
+							childB.index = nodeB.index;
+						}
+						if ((!isProcessingBaseTree)
+								&& (context.addedLeftNodes.contains(childA))) {
+							context.addedRightNodes.add(childB);
+						}
+						nonterminalComposed.addChild(superimpose(childA,
+								childB, nonterminalComposed, context,
+								isProcessingBaseTree));
+					}
+				}
+				List<FSTNode> nonterminalAChildren = nonterminalA.getChildren();
+				for (int i = 0; i < nonterminalAChildren.size(); i++) {
+					FSTNode childA = (FSTNode) nonterminalAChildren.get(i);
+					FSTNode childB = nonterminalB.getCompatibleChild(childA);
+					if (childB == null) {
+						FSTNode cloneA = childA.getDeepClone();
+						if (childA.index == -1) {
+							childA.index = nodeA.index;
+						}
+						cloneA.index = childA.index;
+
+						FSTNode childALeftNeighbour = getLeftNeighbourNode(
+								nonterminalAChildren, i);
+						FSTNode childARightNeighbour = getRightNeighbourNode(
+								nonterminalAChildren, i);
+						addNodeToNonTerminalNearNeighbour(cloneA,
+								childALeftNeighbour, childARightNeighbour,
+								nonterminalComposed);
+						if (context.deletedBaseNodes.contains(childA)) {
+							context.deletedBaseNodes.remove(childA);
+							context.deletedBaseNodes.add(cloneA);
+						}
+						if (isProcessingBaseTree) {
+							context.addedLeftNodes.add(cloneA);
+						} else if (!context.addedLeftNodes.contains(childA)) {
+							context.nodesDeletedByRight.add(cloneA);
+						}
+					} else if (!isProcessingBaseTree) {
+						context.deletedBaseNodes.remove(childA);
+					}
+				}
+				return nonterminalComposed;
+			}
+			if (((nodeA instanceof FSTTerminal))
+					&& ((nodeB instanceof FSTTerminal))
+					&& ((parent instanceof FSTNonTerminal))) {
+				FSTTerminal terminalA = (FSTTerminal) nodeA;
+				FSTTerminal terminalB = (FSTTerminal) nodeB;
+				FSTTerminal terminalComposed = (FSTTerminal) composed;
+				if (!terminalA.getMergingMechanism().equals("Default")) {
+					terminalComposed.setBody(markContributions(
+							terminalA.getBody(), terminalB.getBody(),
+							isProcessingBaseTree, terminalA.index,
+							terminalB.index));
+				}
+				return terminalComposed;
+			}
+			return null;
+		}
+		return null;
+	}
+
+	private static String markContributions(String bodyA, String bodyB,
+			boolean firstPass, int indexA, int indexB) {
+		if (bodyA.contains("~~FSTMerge~~")) {
+			return bodyA + " " + bodyB;
+		}
+		if (firstPass) {
+			return "~~FSTMerge~~ " + bodyA + " " + "##FSTMerge##" + " " + bodyB
+					+ " " + "##FSTMerge##";
+		}
+		if (indexA == 0) {
+			return "~~FSTMerge~~ " + bodyA + " " + "##FSTMerge##" + " "
+					+ "##FSTMerge##" + " " + bodyB;
+		}
+		return "~~FSTMerge~~ ##FSTMerge## " + bodyA + " " + "##FSTMerge##"
+		+ " " + bodyB;
+	}
+
+	/**
+	 * After superimposition, base nodes supposed to be removed might remain.
+	 * This method removes these nodes from the merged tree.
+	 * 
+	 * @param mergedTree
+	 * @param context
+	 */
+	private static void removeRemainingBaseNodes(FSTNode mergedTree,
+			MergeContext context) {
+		boolean removed = false;
+		if (!context.deletedBaseNodes.isEmpty()) {
+			for (FSTNode loneBaseNode : context.deletedBaseNodes) {
+				if (mergedTree == loneBaseNode) {
+					FSTNonTerminal parent = (FSTNonTerminal) mergedTree
+							.getParent();
+					if (parent != null) {
+						parent.removeChild(mergedTree);
+						removed = true;
+					}
+				}
+			}
+			if (!removed && mergedTree instanceof FSTNonTerminal) {
+				Object[] children = ((FSTNonTerminal) mergedTree).getChildren()
+						.toArray();
+				for (Object child : children) {
+					removeRemainingBaseNodes((FSTNode) child, context);
+				}
+			}
+		}
+	}
+
+	private static void mergeMatchedContent(FSTNode node, MergeContext context)
+			throws TextualMergeException {
+		if ((node instanceof FSTNonTerminal)) {
+			for (FSTNode child : ((FSTNonTerminal) node).getChildren()) {
+				mergeMatchedContent(child, context);
+			}
+		} else if ((node instanceof FSTTerminal)) {
+			if (((FSTTerminal) node).getBody().contains("##FSTMerge##")) {
+				String body = ((FSTTerminal) node).getBody() + " ";
+				String[] splittedBodyContent = body.split("##FSTMerge##");
+
+				String leftContent = splittedBodyContent[0].replace(
+						"~~FSTMerge~~", "").trim();
+				String baseContent = splittedBodyContent[1].trim();
+				String rightContent = splittedBodyContent[2].trim();
+
+				String mergedBodyContent = TextualMerge.merge(leftContent,
+						baseContent, rightContent, true);
+				((FSTTerminal) node).setBody(mergedBodyContent);
+
+				identifyNodesEditedInOnlyOneVersion(node, context, leftContent,
+						baseContent, rightContent);
+
+				identifyPossibleNodesDeletionOrRenamings(node, context,
+						leftContent, baseContent, rightContent);
+
+				findConsecutiveLinesOrSpacingConflicts(node, context,
+						leftContent, baseContent, rightContent,
+						mergedBodyContent);
+			}
+		} else {
+			System.err
+			.println("Warning: node is neither non-terminal nor terminal!");
+		}
+	}
+
+	private static void findConsecutiveLinesOrSpacingConflicts(FSTNode node,
+			MergeContext context, String leftContent, String baseContent,
+			String rightContent, String mergedBodyContent)
+					throws TextualMergeException {
+		if ((node.getType().equals("MethodDecl"))
+				|| (node.getType().equals("ConstructorDecl"))) {
+			if (mergedBodyContent.contains("<<<<<<")) {
+				if (!FPFNUtils.isRenamingOrDeletionConflict(leftContent,
+						baseContent, rightContent)) {
+					String mergedBodyContentInclBase = new TextualMerge()
+					.mergeIncludingBase(leftContent, baseContent,
+							rightContent, node);
+					List<MergeConflict> mergeConflictsOriginal = FilesManager
+							.extractMergeConflicts(mergedBodyContent);
+					List<MergeConflict> mergeConflictsInclBase = FilesManager
+							.extractMergeConflicts(mergedBodyContentInclBase);
+					List<MergeConflict> mergeConflicts = FilesManager
+							.filterNonOverlapingMergeConflicts(
+									mergeConflictsInclBase,
+									mergeConflictsOriginal);
+					for (MergeConflict mc : mergeConflicts) {
+						Difference diff = new Difference();
+						if (FPFNUtils.isConsecutiveLineConflict(mc)) {
+							diff.types.add(Difference.Type.CONSECUTIVE_LINES);
+						} else if (FPFNUtils.isSpacingConflict(mc)) {
+							diff.types.add(Difference.Type.SPACING);
+						} else {
+							diff.types.add(Difference.Type.OTHER);
+						}
+						diff.jfstmergeConf = mc;
+						diff.jfstmergeBody = mergedBodyContent;
+						diff.signature = FPFNUtils
+								.extractSignature(mergedBodyContentInclBase);
+						context.differences.add(diff);
+					}
+				}
+			} else {
+				Difference diff = new Difference();
+				diff.jfstmergeBody = mergedBodyContent;
+				diff.signature = FPFNUtils.extractSignature(mergedBodyContent);
+				context.differences.add(diff);
+			}
+		}
+	}
+
+	private static void identifyPossibleNodesDeletionOrRenamings(FSTNode node,
+			MergeContext context, String leftContent, String baseContent,
+			String rightContent) {
+		String leftContenttrim = FilesManager
+				.getStringContentIntoSingleLineNoSpacing(leftContent);
+		String baseContenttrim = FilesManager
+				.getStringContentIntoSingleLineNoSpacing(baseContent);
+		String rightContenttrim = FilesManager
+				.getStringContentIntoSingleLineNoSpacing(rightContent);
+		if (!baseContenttrim.isEmpty()) {
+			if ((!baseContenttrim.equals(leftContenttrim))
+					&& (rightContenttrim.isEmpty())) {
+				Pair<String, FSTNode> tuple = Pair.of(baseContent, node);
+				context.possibleRenamedRightNodes.add(tuple);
+			} else if ((!baseContenttrim.equals(rightContenttrim))
+					&& (leftContenttrim.isEmpty())) {
+				Pair<String, FSTNode> tuple = Pair.of(baseContent, node);
+				context.possibleRenamedLeftNodes.add(tuple);
+			}
+		}
+	}
+
+	private static void identifyNodesEditedInOnlyOneVersion(FSTNode node,
+			MergeContext context, String leftContent, String baseContent,
+			String rightContent) {
+		String leftContenttrim = FilesManager
+				.getStringContentIntoSingleLineNoSpacing(leftContent);
+		String baseContenttrim = FilesManager
+				.getStringContentIntoSingleLineNoSpacing(baseContent);
+		String rightContenttrim = FilesManager
+				.getStringContentIntoSingleLineNoSpacing(rightContent);
+		if (!baseContenttrim.isEmpty()) {
+			if ((baseContenttrim.equals(leftContenttrim))
+					&& (!rightContenttrim.equals(leftContenttrim))) {
+				context.editedRightNodes.add(node);
+			} else if ((baseContenttrim.equals(rightContenttrim))
+					&& (!leftContenttrim.equals(rightContenttrim))) {
+				context.editedLeftNodes.add(node);
+			}
+		}
+	}
+
+	private static FSTNode getLeftNeighbourNode(List<FSTNode> nodes,
+			int nodeIndex) {
+		boolean nodeHasLeftNeighbour = nodeIndex > 0;
+		FSTNode leftNeighbour = null;
+		if (nodeHasLeftNeighbour) {
+			leftNeighbour = (FSTNode) nodes.get(nodeIndex - 1);
+		}
+		return leftNeighbour;
+	}
+
+	private static FSTNode getRightNeighbourNode(List<FSTNode> nodes,
+			int nodeIndex) {
+		boolean nodeHasRightNeighbour = nodeIndex < nodes.size() - 1;
+		FSTNode rightNeighbour = null;
+		if (nodeHasRightNeighbour) {
+			rightNeighbour = (FSTNode) nodes.get(nodeIndex + 1);
+		}
+		return rightNeighbour;
+	}
+
+	private static void addNodeToNonTerminalNearNeighbour(FSTNode node,
+			FSTNode leftNeighbour, FSTNode rightNeighbour,
+			FSTNonTerminal nonTerminal) {
+		boolean hasFoundNeighbour = false;
+		if (leftNeighbour != null) {
+			int leftNeighbourIndex = findChildNodeIndex(nonTerminal,
+					leftNeighbour);
+			if (leftNeighbourIndex != -1) {
+				nonTerminal.addChild(node, leftNeighbourIndex + 1);
+				hasFoundNeighbour = true;
+			}
+		}
+		if ((!hasFoundNeighbour) && (rightNeighbour != null)) {
+			int rightSiblingIndex = findChildNodeIndex(nonTerminal,
+					rightNeighbour);
+			if (rightSiblingIndex != -1) {
+				nonTerminal.addChild(node, rightSiblingIndex);
+				hasFoundNeighbour = true;
+			}
+		}
+		if (!hasFoundNeighbour) {
+			nonTerminal.addChild(node);
+		}
+	}
+
+	private static int findChildNodeIndex(FSTNonTerminal parentNode,
+			FSTNode node) {
+		return parentNode.getChildren().indexOf(node);
+	}
+}

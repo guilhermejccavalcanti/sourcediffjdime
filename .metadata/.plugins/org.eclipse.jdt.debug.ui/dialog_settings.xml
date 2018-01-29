@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<section name="Workbench">
+	<item value="82" key="org.eclipse.jdt.debug.ui.jre_preference_page_context.columnWidth2"/>
+	<item value="1" key="org.eclipse.jdt.debug.ui.jre_preference_page_context.sortColumn"/>
+	<item value="194" key="org.eclipse.jdt.debug.ui.jre_preference_page_context.columnWidth1"/>
+	<item value="121" key="org.eclipse.jdt.debug.ui.jre_preference_page_context.columnWidth0"/>
+	<section name="conditionHistory">
+		<item value="((ASTNodeArtifact)left).getASTNode() instanceof org.jastadd.extendj.ast.Block" key="conditionHistoryEntry_8"/>
+		<item value="context.structuredOutput == null" key="conditionHistoryEntry_9"/>
+		<item value="//((ASTNodeArtifact)leftChild).getddASTNode() instanceof org.jastadd.extendj.ast.EnhancedForStmt&#x0D;&#x0A;((ASTNodeArtifact)leftChild).getddASTNode() instanceof org.jastadd.extendj.ast.ExpStmt&#x0D;&#x0A;" key="conditionHistoryEntry_6"/>
+		<item value="((ASTNodeArtifact)leftChild).getASTNode() instanceof org.jastadd.extendj.ast.IfStmt" key="conditionHistoryEntry_7"/>
+		<item value="7" key="conditionHistoryEntryCount"/>
+		<item value="((ASTNodeArtifact)leftChild).getASTNode() instanceof org.jastadd.extendj.ast.EnhancedForStmt" key="conditionHistoryEntry_0"/>
+		<item value="((ASTNodeArtifact)leftChild).getASTNode() instanceof org.jastadd.extendj.ast.ExprStmt" key="conditionHistoryEntry_1"/>
+		<item value="((ASTNodeArtifact)leftChild).getddASTNode() instanceof org.jastadd.extendj.ast.EnhancedForStmt&#x0D;&#x0A;|| ((ASTNodeArtifact)leftChild).getddASTNode() instanceof org.jastadd.extendj.ast.ExprStmt" key="conditionHistoryEntry_4"/>
+		<item value="//((ASTNodeArtifact)leftChild).getddASTNode() instanceof org.jastadd.extendj.ast.EnhancedForStmt&#x0D;&#x0A;((ASTNodeArtifact)leftChild).getddASTNode() instanceof org.jastadd.extendj.ast.ExprStmt" key="conditionHistoryEntry_5"/>
+		<item value="((ASTNodeArtifact)leftChild).getddASTNode() instanceof org.jastadd.extendj.ast.EnhancedForStmt&#x0D;&#x0A;" key="conditionHistoryEntry_2"/>
+		<item value="((ASTNodeArtifact)leftChild).getddASTNode() instanceof org.jastadd.extendj.ast.ExprStmt" key="conditionHistoryEntry_3"/>
+	</section>
+	<section name="org.eclipse.jdt.internal.debug.ui.ExpressionInformationControlCreator$ExpressionInformationControl">
+		<item value="500" key="SashWeightTree"/>
+		<item value="500" key="SashWeightDetails"/>
+		<item value="710" key="WIDTH"/>
+		<item value="482" key="HEIGHT"/>
+	</section>
+	<section name="AddExceptionDialog">
+		<item value="true" key="caughtChecked"/>
+		<item value="true" key="uncaughtChecked"/>
+	</section>
+</section>

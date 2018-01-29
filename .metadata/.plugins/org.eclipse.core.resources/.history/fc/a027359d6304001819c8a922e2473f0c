@@ -1,0 +1,342 @@
+package fpfn;
+
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.PrintWriter;
+import java.util.List;
+
+import br.ufpe.cin.files.FilesManager;
+import br.ufpe.cin.files.FilesTuple;
+import br.ufpe.cin.mergers.util.MergeConflict;
+import br.ufpe.cin.mergers.util.MergeContext;
+import br.ufpe.cin.mergers.util.MergeScenario;
+import de.fosd.jdime.artifact.ast.ASTNodeArtifact;
+import fpfn.Difference.Type;
+
+public final class FPFNUtils {
+
+	public static boolean isConsecutiveLineConflict(MergeConflict mergeConflict) {
+		boolean falsePositive = false;
+		if ((mergeConflict.left!=null && mergeConflict.base!=null && mergeConflict.right!=null) &&
+				(!mergeConflict.left.equals("")&& !mergeConflict.base.equals("") && !mergeConflict.right.equals(""))) {
+			String[] leftLines = mergeConflict.left.split("\n");
+			String[] baseLines = mergeConflict.base.split("\n");
+			String[] rightLines = mergeConflict.right.split("\n");
+			if (baseLines.length!=0 && !baseLines[0].equals("")) {
+				String fixedElement = baseLines[0];
+				boolean foundOnLeft = searchFixedElement(fixedElement,
+						leftLines);
+				if (foundOnLeft) {
+					falsePositive = true;
+				} else {
+					boolean foundOnRight = searchFixedElement(fixedElement,
+							rightLines);
+					if (foundOnRight) {
+						falsePositive = true;
+					}
+				}
+			}
+
+		}
+		return falsePositive;
+	}
+
+	private static boolean searchFixedElement(String fixedElement,
+			String[] variant) {
+		boolean foundFixedElement = false;
+		int i = 0;
+		while (!foundFixedElement && i < variant.length) {
+			if (variant[i].equals(fixedElement)) {
+				foundFixedElement = true;
+			}
+			i++;
+		}
+		return foundFixedElement;
+	}
+
+	public static String extractSignature(String mergedBodyContentInclBase) {
+		return mergedBodyContentInclBase.split("\\{")[0];
+	}
+
+	public static ASTNodeArtifact getMethodNode(ASTNodeArtifact conf) {
+		ASTNodeArtifact parent = conf.getParent();
+		if (parent == null || parent.isMethod()) {
+			return parent;
+		} else {
+			return getMethodNode(parent);
+		}
+	}
+
+	public static String getMethodBody(ASTNodeArtifact methodDecl) {
+		return methodDecl.prettyPrint();
+	}
+
+	public static Difference getOrCreateDifference(
+			List<Difference> differences, String signature,
+			MergeConflict jdimeMergeConflict) {
+		for (Difference diff : differences) {
+			if (areSignatureEqual(signature, diff.signature)) {
+				if (areSimilarConflicts(diff.jfstmergeConf, jdimeMergeConflict)) {
+					return diff;
+				}
+			}
+		}
+		Difference diff = new Difference();
+		differences.add(diff);
+		return diff;
+	}
+
+	public static boolean areSignatureEqual(String signature,
+			String othersignature) {
+		return FilesManager.getStringContentIntoSingleLineNoSpacing(
+				othersignature)
+				.equals(FilesManager
+						.getStringContentIntoSingleLineNoSpacing(signature));
+	}
+
+	private static boolean areSimilarConflicts(MergeConflict jfstmergeConf,	MergeConflict jdimeMergeConflict) {
+		if (null == jfstmergeConf || null == jdimeMergeConflict)
+			return false;
+		else {
+			String ljfst = FilesManager.getStringContentIntoSingleLineNoSpacing(jfstmergeConf.left);
+			String rjfst = FilesManager.getStringContentIntoSingleLineNoSpacing(jfstmergeConf.right);
+
+			String ljdm = FilesManager.getStringContentIntoSingleLineNoSpacing(jdimeMergeConflict.left);
+			String rjdm = FilesManager.getStringContentIntoSingleLineNoSpacing(jdimeMergeConflict.right);
+
+			return (	
+						ljfst.contains(ljdm) || 
+						ljdm.contains(ljfst) || 
+						rjfst.contains(rjdm) || 
+						rjdm.contains(rjfst)
+					);
+		}
+	}
+
+	public static void countAndPrintLogOfDifferences(MergeContext context) {
+		try {
+			if (null != context.semistructuredOutput
+					&& null != context.structuredOutput) {
+				log(context);
+				count(context);
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			System.exit(-1);
+		}
+	}
+
+	private static void log(MergeContext context) throws FileNotFoundException {
+		String mergedFiles = 
+				  ((context.getLeft()!=null)? context.getLeft() .getPath() : "empty") + ";"
+				+ ((context.getBase()!=null)? context.getBase() .getPath() : "empty") + ";"
+				+ ((context.getRight()!=null)?context.getRight().getPath() : "empty") + "\n";
+		for (Difference diff : context.differences) {
+			if(!diff.types.isEmpty()){
+				String logPath = System.getProperty("user.home") + File.separator
+						+ ".jfstmerge" + File.separator + "log"
+						+ diff.getTypeIntoString() + ".txt";
+				String logEntry = mergedFiles + diff.toString();
+
+				PrintWriter pw = new PrintWriter(new FileOutputStream(new File(
+						logPath), true), true);
+				pw.append(logEntry + "\n");
+				pw.close();
+			}
+		}
+	}
+
+	private static void count(MergeContext context)
+			throws FileNotFoundException {
+		int consecutiveLinesonly = 0;
+		int spacingonly = 0;
+		int samePositiononly = 0;
+		int sameStmtonly = 0;
+		int otheronly = 0;
+		int consecutiveLinesAndSamePosition = 0;
+		int consecutiveLinesAndsameStmt = 0;
+		int otherAndsamePosition = 0;
+		int otherAndsameStmt = 0;
+		int spacingAndSamePosition = 0;
+		int spacingAndSameStmt = 0;
+		
+		int ssmergeConf = 0;
+		int jdimeConf   = 0;
+		int textualConf = 0;
+
+		for (Difference diff : context.differences) {
+			if (diff.types.contains(Type.CONSECUTIVE_LINES)
+					&& diff.types.contains(Type.SAME_POSITION)) {
+				consecutiveLinesAndSamePosition++;
+			} else if (diff.types.contains(Type.CONSECUTIVE_LINES)
+					&& diff.types.contains(Type.SAME_STATEMENT)) {
+				consecutiveLinesAndsameStmt++;
+			} else if (diff.types.contains(Type.OTHER)
+					&& diff.types.contains(Type.SAME_POSITION)) {
+				otherAndsamePosition++;
+			} else if (diff.types.contains(Type.OTHER)
+					&& diff.types.contains(Type.SAME_STATEMENT)) {
+				otherAndsameStmt++;
+			} else if (diff.types.contains(Type.SPACING)
+					&& diff.types.contains(Type.SAME_POSITION)) {
+				spacingAndSamePosition++;
+			} else if (diff.types.contains(Type.SPACING)
+					&& diff.types.contains(Type.SAME_STATEMENT)) {
+				spacingAndSameStmt++;
+			} else if (diff.types.contains(Type.CONSECUTIVE_LINES)) {
+				consecutiveLinesonly++;
+			} else if (diff.types.contains(Type.SPACING)) {
+				spacingonly++;
+			} else if (diff.types.contains(Type.SAME_POSITION)) {
+				samePositiononly++;
+			} else if (diff.types.contains(Type.SAME_STATEMENT)) {
+				sameStmtonly++;
+			} else if (diff.types.contains(Type.OTHER)) {
+				otheronly++;
+			}
+		}
+		
+		ssmergeConf += FilesManager.extractMergeConflicts(context.semistructuredOutput).size();
+		jdimeConf 	+= FilesManager.extractMergeConflicts(context.structuredOutput).size();
+		textualConf += FilesManager.extractMergeConflicts(context.unstructuredOutput).size();
+
+		String mergedFiles = 
+				  ((context.getLeft()!=null)? context.getLeft() .getPath() : "empty") + ","
+				+ ((context.getBase()!=null)? context.getBase() .getPath() : "empty") + ","
+				+ ((context.getRight()!=null)?context.getRight().getPath() : "empty") + "\n";
+		
+		String header = "files;consecutiveLinesonly;spacingonly;samePositiononly;sameStmtonly;otheronly;consecutiveLinesAndSamePosition;consecutiveLinesAndsameStmt;otherAndsamePosition;"
+				+ "otherAndsameStmt;spacingAndSamePosition;spacingAndSameStmt;ssmergeConf;textualConf;jdimeConf";
+		String logPath = System.getProperty("user.home") + File.separator + ".jfstmerge" + File.separator + "numbersDifferences.csv";
+		String logEntry = mergedFiles + ";" + consecutiveLinesonly + ";" 
+				+ spacingonly + ";" + samePositiononly + ";" + sameStmtonly
+				+ ";" + otheronly + ";" + consecutiveLinesAndSamePosition + ";"
+				+ consecutiveLinesAndsameStmt + ";" + otherAndsamePosition
+				+ ";" + otherAndsameStmt + ";" + spacingAndSamePosition + ";"
+				+ spacingAndSameStmt + ";" + ssmergeConf + ";"
+				+ textualConf + ";" + jdimeConf;
+
+		File out = new File(logPath);
+		PrintWriter pw; 
+		if (!out.exists()) {
+			pw = new PrintWriter(new FileOutputStream(out, true), true);
+			pw.append(header + "\n");
+			pw.append(logEntry + "\n");
+		} else {
+			pw = new PrintWriter(new FileOutputStream(out, true), true);
+			pw.append(logEntry + "\n");
+		}
+		pw.close();
+	}
+
+	public static boolean isSpacingConflict(MergeConflict mc) {
+		if(mc.base != null && mc.right != null){
+			if( FilesManager.getStringContentIntoSingleLineNoSpacing(mc.right)
+			.equals(FilesManager.getStringContentIntoSingleLineNoSpacing(mc.base))) 		
+				return true;
+		} 
+		if(mc.base != null && mc.left != null){
+			if(FilesManager.getStringContentIntoSingleLineNoSpacing(mc.left)
+			.equals(FilesManager.getStringContentIntoSingleLineNoSpacing(mc.base))) 		
+				return true;
+		} 
+		if(mc.right != null & mc.left != null){
+			if(FilesManager.getStringContentIntoSingleLineNoSpacing(mc.right)
+					.equals(FilesManager.getStringContentIntoSingleLineNoSpacing(mc.left))) 
+				return true;
+		}
+		return false;
+	}
+
+	public static void countAndPrintDifferencesNumbersByScenario(MergeScenario scenario) throws FileNotFoundException {
+		String scenarioId 					= scenario.getRevisionsFilePath();
+		int consecutiveLinesonly 			= 0;
+		int spacingonly 					= 0;
+		int samePositiononly 				= 0;
+		int sameStmtonly 					= 0;
+		int otheronly 						= 0;
+		int consecutiveLinesAndSamePosition = 0;
+		int consecutiveLinesAndsameStmt 	= 0;
+		int otherAndsamePosition 			= 0;
+		int otherAndsameStmt 				= 0;
+		int spacingAndSamePosition 			= 0;
+		int spacingAndSameStmt 				= 0;
+		
+		int ssmergeConf = 0;
+		int jdimeConf   = 0;
+		int textualConf = 0;
+		
+		//counting
+		for(FilesTuple tp : scenario.getTuples()){
+			MergeContext ctx = tp.getContext();
+			if(ctx != null){
+				for (Difference diff : ctx.differences) {
+					if (diff.types.contains(Type.CONSECUTIVE_LINES)
+							&& diff.types.contains(Type.SAME_POSITION)) {
+						consecutiveLinesAndSamePosition++;
+					} else if (diff.types.contains(Type.CONSECUTIVE_LINES)
+							&& diff.types.contains(Type.SAME_STATEMENT)) {
+						consecutiveLinesAndsameStmt++;
+					} else if (diff.types.contains(Type.OTHER)
+							&& diff.types.contains(Type.SAME_POSITION)) {
+						otherAndsamePosition++;
+					} else if (diff.types.contains(Type.OTHER)
+							&& diff.types.contains(Type.SAME_STATEMENT)) {
+						otherAndsameStmt++;
+					} else if (diff.types.contains(Type.SPACING)
+							&& diff.types.contains(Type.SAME_POSITION)) {
+						spacingAndSamePosition++;
+					} else if (diff.types.contains(Type.SPACING)
+							&& diff.types.contains(Type.SAME_STATEMENT)) {
+						spacingAndSameStmt++;
+					} else if (diff.types.contains(Type.CONSECUTIVE_LINES)) {
+						consecutiveLinesonly++;
+					} else if (diff.types.contains(Type.SPACING)) {
+						spacingonly++;
+					} else if (diff.types.contains(Type.SAME_POSITION)) {
+						samePositiononly++;
+					} else if (diff.types.contains(Type.SAME_STATEMENT)) {
+						sameStmtonly++;
+					} else if (diff.types.contains(Type.OTHER)) {
+						otheronly++;
+					}
+				}
+				
+				ssmergeConf += FilesManager.extractMergeConflicts(ctx.semistructuredOutput).size();
+				jdimeConf 	+= FilesManager.extractMergeConflicts(ctx.structuredOutput).size();
+				textualConf += FilesManager.extractMergeConflicts(ctx.unstructuredOutput).size();
+			}
+		}
+		
+
+		//printing
+		String header = "revision;consecutiveLinesonly;spacingonly;samePositiononly;sameStmtonly;otheronly;consecutiveLinesAndSamePosition;consecutiveLinesAndsameStmt;otherAndsamePosition;otherAndsameStmt;spacingAndSamePosition;spacingAndSameStmt;ssmergeConf;textualConf;jdimeConf";
+		String logPath = System.getProperty("user.home") + File.separator + ".jfstmerge" + File.separator + "numbersDifferencesScenarios.csv";
+		String logEntry = scenarioId + ";" + consecutiveLinesonly + ";" 
+				+ spacingonly + ";" + samePositiononly + ";" + sameStmtonly
+				+ ";" + otheronly + ";" + consecutiveLinesAndSamePosition + ";"
+				+ consecutiveLinesAndsameStmt + ";" + otherAndsamePosition
+				+ ";" + otherAndsameStmt + ";" + spacingAndSamePosition + ";"
+				+ spacingAndSameStmt + ";" + ssmergeConf + ";"
+				+ textualConf + ";" + jdimeConf;
+
+		File out = new File(logPath);
+		PrintWriter pw; 
+		if (!out.exists()) {
+			pw = new PrintWriter(new FileOutputStream(out, true), true);
+			pw.append(header + "\n");
+			pw.append(logEntry + "\n");
+		} else {
+			pw = new PrintWriter(new FileOutputStream(out, true), true);
+			pw.append(logEntry + "\n");
+		}
+		pw.close();
+		
+		
+	}
+
+	public static boolean isRenamingOrDeletionConflict(String leftContent,	String baseContent, String rightContent) {
+		return !baseContent.isEmpty() && (leftContent.isEmpty() || rightContent.isEmpty());
+	}
+}
